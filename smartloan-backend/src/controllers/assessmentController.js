@@ -42,8 +42,8 @@ const runAssessment = async (req, res) => {
             `INSERT INTO credit_assessments
         (user_id, fuzzy_credit_score, score_band, risk_level,
          demographic_score, financial_score, asset_score,
-         default_probability, reason_codes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         default_probability, reason_codes, explanation)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 user_id,
                 result.fuzzy_credit_score,
@@ -53,7 +53,8 @@ const runAssessment = async (req, res) => {
                 result.financial_score,
                 result.asset_score,
                 result.default_probability,
-                JSON.stringify(result.reason_codes)
+                JSON.stringify(result.reason_codes),
+                result.explanation
             ]
         );
 

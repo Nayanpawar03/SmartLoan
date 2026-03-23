@@ -40,7 +40,7 @@ const getAllApplications = async (req, res) => {
              JOIN users u ON la.user_id = u.id
              JOIN loan_products lp ON la.loan_product_id = lp.id
              LEFT JOIN (
-                SELECT user_id, fuzzy_credit_score, risk_level, score_band
+                SELECT user_id, fuzzy_credit_score, risk_level, score_band, explanation
                 FROM credit_assessments
                 WHERE id IN (
                     SELECT MAX(id) FROM credit_assessments GROUP BY user_id

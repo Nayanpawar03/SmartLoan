@@ -1,6 +1,6 @@
 # SmartLoan Backend
 
-A banking-style backend system that uses a **Fuzzy Inference System (FIS)** to evaluate credit scores and determine loan eligibility.
+A banking-style backend system that uses a **Fuzzy Inference System (FIS)** combined with a **trained Logistic Regression model** to evaluate credit scores, predict default probability, and generate AI-powered explanations for loan decisions.
 
 ---
 
@@ -9,8 +9,9 @@ A banking-style backend system that uses a **Fuzzy Inference System (FIS)** to e
 - **Node.js + Express.js** — REST API server
 - **MySQL** — relational database
 - **JWT + Passport.js** — authentication (email/password + Google OAuth)
-- **Python FastAPI** — Fuzzy Inference System microservice
+- **Python FastAPI** — ML microservice (FIS + default prediction + explainability)
 - **scikit-fuzzy** — fuzzy logic engine
+- **scikit-learn** — logistic regression model trained on real Kaggle data
 
 ---
 
@@ -43,7 +44,14 @@ smartloan-backend/
 └── package.json
 
 smartloan-fis/
-├── main.py                    # FastAPI + FIS logic
+├── fis_engine.py      # Fuzzy Inference System (2-stage)
+├── nn_model.py        # Default probability prediction
+├── explainer.py       # AI explanation generator
+├── train_model.py     # Model training script
+├── main.py            # FastAPI entry point
+├── model.pkl          # Trained logistic regression
+├── scaler.pkl         # Fitted StandardScaler
+├── features.pkl       # Feature list
 └── venv/
 ```
 
@@ -102,6 +110,11 @@ Run all `CREATE TABLE` statements for:
 - `loan_products`
 - `loan_applications`
 
+Add explanation column:
+```sql
+ALTER TABLE credit_assessments ADD COLUMN explanation TEXT;
+```
+
 Seed loan products:
 ```sql
 INSERT INTO loan_products (name, min_credit_score, max_dti, min_income, max_loan_amount, interest_rate, tenure_months) VALUES
@@ -112,11 +125,21 @@ INSERT INTO loan_products (name, min_credit_score, max_dti, min_income, max_loan
 ('Business Loan', 65, 40.00, 75000, 2000000, 13.0, 84);
 ```
 
-### 4. Set up and run the Python FIS
+### 4. Set up the Python FIS + ML service
 
 ```bash
 cd smartloan-fis
 venv\Scripts\activate
+pip install fastapi uvicorn scikit-fuzzy scikit-learn scipy numpy pandas joblib packaging networkx
+```
+
+Train the model (requires `cs-training.csv` from Kaggle "Give Me Some Credit"):
+```bash
+python train_model.py
+```
+
+Start the service:
+```bash
 uvicorn main:app --reload --port 8000
 ```
 
@@ -148,7 +171,7 @@ npm run dev
 ### Credit Assessment (requires JWT)
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/assessment/run` | Run FIS credit assessment |
+| POST | `/api/assessment/run` | Run FIS + ML assessment |
 | GET | `/api/assessment/latest` | Get latest assessment result |
 
 ### Loans (requires JWT)
@@ -162,22 +185,36 @@ npm run dev
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/manager/users` | All users with credit scores |
-| GET | `/api/manager/applications` | All loan applications |
+| GET | `/api/manager/applications` | All applications with AI explanation |
 | PATCH | `/api/manager/applications/:id/status` | Approve or reject application |
 | GET | `/api/manager/analytics` | Risk stats and score distribution |
 
 ---
 
-## How the FIS Works
+## How the AI Pipeline Works
 
-The credit scoring uses a 2-stage Fuzzy Inference System:
+```
+User submits financial profile
+        ↓
+Stage 1 FIS → behaviour_score + financial_score + experience_score
+        ↓
+Stage 2 FIS → fuzzy_credit_score (300–850)
+        ↓
+Logistic Regression → default_probability (0–1)
+        ↓
+Explainer → human-readable explanation
+        ↓
+Stored in DB + returned to client
+```
 
-**Stage 1** — computes 3 intermediate scores:
-- `behaviour_score` — from payment history + credit utilization
-- `financial_score` — from DTI + income + EMI
-- `experience_score` — from credit history length + inquiries
+### FIS Scoring
 
-**Stage 2** — combines the 3 scores into a final `credit_score` (300–850)
+**Stage 1** computes 3 intermediate scores:
+- `behaviour_score` — payment history + credit utilization
+- `financial_score` — DTI + income + EMI
+- `experience_score` — credit history length + inquiries
+
+**Stage 2** combines them into a final `credit_score` (300–850)
 
 | Score Range | Band | Risk Level |
 |-------------|------|------------|
@@ -186,6 +223,22 @@ The credit scoring uses a 2-stage Fuzzy Inference System:
 | 600 – 699 | Fair | Medium |
 | 500 – 599 | Poor | High |
 | 300 – 499 | Very Poor | Very High |
+
+### Default Prediction
+
+Logistic Regression trained on 150,000 records from the Kaggle "Give Me Some Credit" dataset. Key learned feature weights:
+
+| Feature | Influence |
+|---------|-----------|
+| fuzzy_credit_score | ↓ risk |
+| credit_utilization | ↑ risk (strongest) |
+| monthly_income | ↓ risk |
+| debt_to_income_ratio | ↑ risk |
+| num_inquiries | ↑ risk |
+
+### AI Explanation Example
+
+> "This applicant presents moderate default risk supported by low credit utilization, a healthy debt-to-income ratio, a moderate income level, few recent credit inquiries, and a good credit score (696). (Default probability: 43%)"
 
 ---
 
